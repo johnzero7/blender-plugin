@@ -50,13 +50,12 @@ class Config:
     SKETCHFAB_ORGS = SKETCHFAB_API + '/v3/orgs'
     SKETCHFAB_SIGNUP = 'https://sketchfab.com/signup'
 
-    BASE_SEARCH = SKETCHFAB_SEARCH + '?type=models&downloadable=true'
+    BASE_SEARCH = SKETCHFAB_SEARCH + '?type=models'
     DEFAULT_FLAGS = '&staffpicked=true&sort_by=-staffpickedAt'
-    DEFAULT_SEARCH = SKETCHFAB_SEARCH + \
-                     '?type=models&downloadable=true' + DEFAULT_FLAGS
+    DEFAULT_SEARCH = SKETCHFAB_SEARCH + '?type=models' + DEFAULT_FLAGS
 
     SKETCHFAB_ME = '{}/v3/me'.format(SKETCHFAB_URL)
-    BASE_SEARCH_OWN_MODELS = SKETCHFAB_ME + '/search?type=models&downloadable=true'
+    BASE_SEARCH_OWN_MODELS = SKETCHFAB_ME + '/search?type=models'
     PURCHASED_MODELS = SKETCHFAB_ME + "/models/purchases?"
 
     SKETCHFAB_PLUGIN_VERSION = '{}/releases'.format(GITHUB_REPOSITORY_API_URL)

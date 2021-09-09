@@ -139,6 +139,8 @@ def refresh_search(self, context):
     props.animated = pprops.animated
     props.pbr = pprops.pbr
     props.staffpick = pprops.staffpick
+    props.restricted = pprops.restricted
+    props.downloadable = pprops.downloadable
     props.categories = pprops.categories
     props.face_count = pprops.face_count
     bpy.ops.wm.sketchfab_search('EXEC_DEFAULT')
@@ -582,6 +584,20 @@ class SketchfabBrowserPropsProxy(bpy.types.PropertyGroup):
             update=refresh_search
             )
 
+    downloadable : BoolProperty(
+            name="Downloadable",
+            description="Show only downloadable models",
+            default=False,
+            update=refresh_search
+            )
+
+    restricted : BoolProperty(
+            name="Restricted",
+            description="Show restricted models",
+            default=False,
+            update=refresh_search
+            )
+
     search_domain : EnumProperty(
             name="",
             items=get_available_search_domains,
@@ -656,6 +672,18 @@ class SketchfabBrowserProps(bpy.types.PropertyGroup):
     staffpick : BoolProperty(
             name="Staffpick",
             description="Show only staffpick models",
+            default=False,
+            )
+
+    downloadable : BoolProperty(
+            name="Downloadable",
+            description="Show only downloadable models",
+            default=False,
+            )
+
+    restricted : BoolProperty(
+            name="Restricted",
+            description="Show restricted models",
             default=False,
             )
 
@@ -774,6 +802,8 @@ def draw_search(layout, context):
             row = col.row()
             row.prop(props, "pbr")
             row.prop(props, "staffpick")
+            row.prop(props, "downloadable")
+            row.prop(props, "restricted")
             row.prop(props, "animated")
         else:
             col.separator()
@@ -869,7 +899,7 @@ def import_model(gltf_path, uid):
     bpy.ops.wm.import_modal('INVOKE_DEFAULT', gltf_path=gltf_path, uid=uid)
 
 
-def build_search_request(query, pbr, animated, staffpick, face_count, category, sort_by):
+def build_search_request(query, pbr, animated, staffpick, downloadable, restricted, face_count, category, sort_by):
     final_query = '&q={}'.format(query)
 
     if animated:
@@ -877,6 +907,12 @@ def build_search_request(query, pbr, animated, staffpick, face_count, category, 
 
     if staffpick:
         final_query = final_query + '&staffpicked=true'
+
+    if restricted:
+        final_query = final_query + '&restricted=1'
+
+    if downloadable:
+        final_query = final_query + '&downloadable=true'
 
     if sort_by == 'LIKES':
         final_query = final_query + '&sort_by=-likeCount'
@@ -1437,7 +1473,7 @@ class SketchfabSearch(bpy.types.Operator):
         skfb = get_sketchfab_props()
         skfb.skfb_api.prev_results_url = None
         skfb.skfb_api.next_results_url = None
-        final_query = build_search_request(skfb.query, skfb.pbr, skfb.animated, skfb.staffpick, skfb.face_count, skfb.categories, skfb.sort_by)
+        final_query = build_search_request(skfb.query, skfb.pbr, skfb.animated, skfb.staffpick, skfb.downloadable, skfb.restricted, skfb.face_count, skfb.categories, skfb.sort_by)
         skfb.skfb_api.search(final_query, parse_results)
         return {'FINISHED'}
 
