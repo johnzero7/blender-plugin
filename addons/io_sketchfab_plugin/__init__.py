@@ -113,14 +113,19 @@ class Config:
     SKETCHFAB_ORGS = SKETCHFAB_API + '/v3/orgs'
     SKETCHFAB_SIGNUP = 'https://sketchfab.com/signup'
 
-    BASE_SEARCH = SKETCHFAB_SEARCH + '?type=models&downloadable=true'
+    # BASE_SEARCH = SKETCHFAB_SEARCH + '?type=models&downloadable=true'
+    BASE_SEARCH = SKETCHFAB_SEARCH + '?type=models'
     DEFAULT_FLAGS = '&staffpicked=true&sort_by=-staffpickedAt'
     DEFAULT_SEARCH = SKETCHFAB_SEARCH + \
-                     '?type=models&downloadable=true' + DEFAULT_FLAGS
+                     '?type=models' + \
+                     '&restricted=1' + \
+                     '&downloadable=true' + \
+                     DEFAULT_FLAGS
 
     SKETCHFAB_ME = '{}/v3/me'.format(SKETCHFAB_API)
-    BASE_SEARCH_OWN_MODELS = SKETCHFAB_ME + '/search?type=models&downloadable=true'
-    PURCHASED_MODELS = SKETCHFAB_ME + "/models/purchases?type=models"
+    # BASE_SEARCH_OWN_MODELS = SKETCHFAB_ME + '/search?type=models&downloadable=true'
+    BASE_SEARCH_OWN_MODELS = SKETCHFAB_ME + '/search?type=models'
+    PURCHASED_MODELS = SKETCHFAB_ME + "/models/purchases?"
 
     SKETCHFAB_PLUGIN_VERSION = '{}/releases'.format(GITHUB_REPOSITORY_API_URL)
 
@@ -150,6 +155,9 @@ class Config:
                             ('weapons-military', 'Weapons & Military', 'Weapons & Military'))
 
     SKETCHFAB_FACECOUNT = (('ANY', "All", ""),
+                           ('10', "Up to 10", ""),
+                           ('100', "Up to 100", ""),
+                           ('1K', "Up to 1k", ""),
                            ('10K', "Up to 10k", ""),
                            ('50K', "10k to 50k", ""),
                            ('100K', "50k to 100k", ""),
@@ -620,6 +628,7 @@ class SketchfabApi:
             url = Config.SKETCHFAB_ORGS + "/%s/models?isArchivesReady=true&projects=%s" % (self.active_org["uid"], skfb.search_domain)
 
         search_query = '{}{}'.format(url, query)
+        print(f"Search query a:\n{search_query}")
         if search_query not in ongoingSearches:
             ongoingSearches.add(search_query)
             searchthr = GetRequestThread(search_query, search_cb, self.headers)
@@ -674,7 +683,9 @@ class SketchfabApi:
                 skfb_model.url_expires = None
                 skfb_model.time_url_requested = None
                 self.write_model_info(skfb_model.title, skfb_model.author, skfb_model.username, skfb_model.license, uid)
-                requests.get(Utils.build_download_url(uid, self.use_org_profile, self.active_org), headers=self.headers, hooks={'response': self.handle_download})
+                original_URL = Utils.build_download_url(uid, self.use_org_profile, self.active_org)
+                print(f"Downloading URL:\n{original_URL}")
+                requests.get(original_URL, headers=self.headers, hooks={'response': self.handle_download})
         else: # Model comes from a direct link
             skfb = get_sketchfab_props()
             download_url = ""
@@ -702,6 +713,7 @@ class SketchfabApi:
                 download_url = Utils.build_download_url(uid)
                 requests.get('{}/{}'.format(Config.SKETCHFAB_MODEL, uid), headers=skfb.skfb_api.headers, hooks={'response': self.parse_model_info_request})
 
+            print(f"Downloading URL:\n{download_url}")
             requests.get(download_url, headers=self.headers, hooks={'response': self.handle_download})
 
     def handle_download(self, r, *args, **kwargs):
@@ -943,14 +955,14 @@ class SketchfabBrowserPropsProxy(bpy.types.PropertyGroup):
     downloadable : BoolProperty(
             name="Downloadable",
             description="Show only downloadable models",
-            default=False,
+            default=True,
             update=refresh_search
             )
 
     restricted : BoolProperty(
             name="Restricted",
             description="Show restricted models",
-            default=False,
+            default=True,
             update=refresh_search
             )
 
@@ -1133,7 +1145,7 @@ def draw_model_info(layout, model, context):
     row = ui_model_props.row()
     row.label(text="{}".format(model.title), icon='OBJECT_DATA')
     row.operator("wm.sketchfab_view", text="", icon='LINKED').model_uid = model.uid
-    
+
     ui_model_props.label(text='{}'.format(model.author), icon='ARMATURE_DATA')
 
     if model.license:
@@ -1236,7 +1248,13 @@ def build_search_request(query, pbr, animated, staffpick, downloadable, restrict
     elif sort_by == 'VIEWS':
         final_query = final_query + '&sort_by=-viewCount'
 
-    if face_count == '10K':
+    if face_count == '10':
+        final_query = final_query + '&max_face_count=10'
+    elif face_count == '100':
+        final_query = final_query + '&max_face_count=100'
+    elif face_count == '1K':
+        final_query = final_query + '&max_face_count=1000'
+    elif face_count == '10K':
         final_query = final_query + '&max_face_count=10000'
     elif face_count == '50K':
         final_query = final_query + '&min_face_count=10000&max_face_count=50000'
@@ -1597,7 +1615,7 @@ class SketchfabBrowse(View3DPanel, bpy.types.Panel):
         if prop.manualImportBoolean:
             row = col.row()
             row.prop(prop, "manualImportPath")
-        
+
         else:
             col = layout.box().column(align=True)
             ro = col.row()
@@ -1632,6 +1650,8 @@ class SketchfabBrowse(View3DPanel, bpy.types.Panel):
                     row = col.row()
                     row.prop(props, "pbr")
                     row.prop(props, "staffpick")
+                    row.prop(props, "downloadable")
+                    row.prop(props, "restricted")
                     row.prop(props, "animated")
                 else:
                     col.separator()
@@ -2303,7 +2323,7 @@ class ExportSketchfab(bpy.types.Operator):
 
         wm.modal_handler_add(self)
         self._timer = wm.event_timer_add(1.0, window=context.window)
-        
+
         return {'RUNNING_MODAL'}
 
     def cancel(self, context):
