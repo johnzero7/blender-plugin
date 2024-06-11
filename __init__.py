@@ -709,6 +709,7 @@ class SketchfabApi:
             print('Url is None')
             return
 
+        print(f'Url is {url}')
         r = requests.get(url, stream=True)
         uid = Utils.get_uid_from_download_url(url)
         temp_dir = os.path.join(Config.SKETCHFAB_MODEL_DIR, uid)
@@ -1871,6 +1872,7 @@ class SketchfabSearch(bpy.types.Operator):
         skfb.skfb_api.prev_results_url = None
         skfb.skfb_api.next_results_url = None
         final_query = build_search_request(skfb.query, skfb.pbr, skfb.animated, skfb.staffpick, skfb.downloadable, skfb.restricted, skfb.face_count, skfb.categories, skfb.sort_by)
+        print(f"Search query b:\n{final_query}")
         skfb.skfb_api.search(final_query, parse_results)
         return {'FINISHED'}
 
