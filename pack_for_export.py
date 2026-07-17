@@ -70,10 +70,19 @@ def prepare_assets(export_settings):
                                     images.add(n.image)
 
             if export_settings['selection'] and ob.type == 'MESH':
-                # Add relevant objects to the list of objects to remove
-                if not ob.visible_get(): # Not visible
+                # Add relevant objects to the list of objects to remove.
+                # Objects in collections excluded from the view layer raise a
+                # RuntimeError on visibility/selection queries; they aren't part
+                # of the export, so just mark them for removal.
+                try:
+                    is_visible = ob.visible_get()
+                    is_selected = ob.select_get()
+                except RuntimeError:
                     hidden.add(ob)
-                elif not ob.select_get(): # Visible but not selected
+                    continue
+                if not is_visible: # Not visible
+                    hidden.add(ob)
+                elif not is_selected: # Visible but not selected
                     ob.hide_set(True)
                     hidden.add(ob)
 

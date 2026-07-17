@@ -40,7 +40,7 @@ bl_info = {
     'author': 'Sketchfab',
     'license': 'APACHE2',
     'deps': '',
-    'version': (1, 6, 1),
+    'version': (1, 7, 1),
     "blender": (2, 80, 0),
     'location': 'View3D > Tools > Sketchfab',
     'warning': '',
@@ -428,7 +428,6 @@ class SketchfabApi:
         self.access_token = ''
         self.api_token = ''
         self.headers = {}
-        Cache.delete_key('username')
         Cache.delete_key('access_token')
         Cache.delete_key('api_token')
         Cache.delete_key('key')
@@ -753,40 +752,10 @@ class SketchfabApi:
         return
 
 class SketchfabLoginProps(bpy.types.PropertyGroup):
-    def update_tr(self, context):
-        self.status = ''
-        if self.email != self.last_username or self.password != self.last_password:
-            self.last_username = self.email
-            self.last_password = self.password
-            if not self.password:
-                set_login_status('ERROR', 'Password is empty')
-            bpy.ops.wm.sketchfab_login('EXEC_DEFAULT')
-
-
-    email : StringProperty(
-        name="email",
-        description="User email",
-        default=""
-    )
-
     api_token : StringProperty(
         name="API Token",
-        description="User API Token",
+        description="User API Token — get it from https://sketchfab.com/settings/password",
         default=""
-    )
-
-    use_mail : BoolProperty(
-            name="Use mail / password",
-            description="Use mail/password login or API Token",
-            default=True,
-    )
-
-    password : StringProperty(
-        name="password",
-        description="User password",
-        subtype='PASSWORD',
-        default="",
-        update=update_tr
     )
 
     access_token : StringProperty(
@@ -1358,27 +1327,6 @@ class LoginModal(bpy.types.Operator):
     def execute(self, context):
         return {'FINISHED'}
 
-    def handle_mail_login(self, r, *args, **kwargs):
-        browser_props = get_sketchfab_props()
-        if r.status_code == 200 and 'access_token' in r.json():
-            browser_props.skfb_api.access_token = r.json()['access_token']
-            login_props = get_sketchfab_login_props()
-            Cache.save_key('username', login_props.email)
-            Cache.save_key('access_token', browser_props.skfb_api.access_token)
-
-            browser_props.skfb_api.build_headers()
-            set_login_status('INFO', '')
-            browser_props.skfb_api.request_user_info()
-
-        else:
-            if 'error_description' in r.json():
-                set_login_status('ERROR', 'Failed to authenticate: bad login/password')
-            else:
-                set_login_status('ERROR', 'Failed to authenticate: bad login/password')
-                print('Cannot login.\n {}'.format(r.json()))
-
-        self.is_logging = False
-
     def handle_token_login(self, api_token):
         browser_props = get_sketchfab_props()
         browser_props.skfb_api.api_token = api_token
@@ -1407,16 +1355,7 @@ class LoginModal(bpy.types.Operator):
         try:
             context.window_manager.modal_handler_add(self)
             login_props = get_sketchfab_login_props()
-            if(login_props.use_mail):
-                data = {
-                    'grant_type': 'password',
-                    'client_id': Config.CLIENTID,
-                    'username': login_props.email,
-                    'password': login_props.password,
-                }
-                requests.post(Config.SKETCHFAB_OAUTH, data=data, hooks={'response': self.handle_mail_login})
-            else:
-                self.handle_token_login(login_props.api_token)
+            self.handle_token_login(login_props.api_token)
         except Exception as e:
             self.error = True
             self.error_message = str(e)
@@ -1439,8 +1378,16 @@ class ImportModalOperator(bpy.types.Operator):
         return {'FINISHED'}
 
     def modal(self, context, event):
-        if bpy.context.scene.render.engine not in ["CYCLES", "BLENDER_EEVEE"]:
-            bpy.context.scene.render.engine = "BLENDER_EEVEE"
+        # Detect available engines
+        available_engines = bpy.types.RenderSettings.bl_rna.properties['engine'].enum_items.keys()
+
+        # Prefer EEVEE_NEXT if available (Blender 4.0+)
+        target_engine = "BLENDER_EEVEE_NEXT" if "BLENDER_EEVEE_NEXT" in available_engines else "BLENDER_EEVEE"
+
+        # If current engine is not acceptable, switch it (leave Workbench alone)
+        if bpy.context.scene.render.engine not in ["CYCLES", "BLENDER_WORKBENCH", target_engine]:
+            bpy.context.scene.render.engine = target_engine
+
         try:
             old_objects = [o.name for o in bpy.data.objects] # Get the current objects inorder to find the new node hierarchy
             bpy.ops.import_scene.gltf(filepath=self.gltf_path)
@@ -1475,7 +1422,6 @@ class View3DPanel:
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'TOOLS' if bpy.app.version < (2, 80, 0) else 'UI'
     bl_category = 'Sketchfab'
-    bl_context = 'objectmode'
 
 class SketchfabPanel(View3DPanel, bpy.types.Panel):
     bl_options = {'DEFAULT_CLOSED'}
@@ -1529,14 +1475,9 @@ class LoginPanel(View3DPanel, bpy.types.Panel):
                     layout.prop(skfb_login, 'status', icon=skfb_login.status_type)
             else:
                 layout.label(text="Login to your Sketchfab account", icon='INFO')
-                layout.prop(skfb_login, "use_mail")
-                if skfb_login.use_mail:
-                    layout.prop(skfb_login, "email")
-                    layout.prop(skfb_login, "password")
-                else:
-                    layout.prop(skfb_login, "api_token")
+                layout.prop(skfb_login, "api_token")
+                layout.operator("wm.url_open", text='Get API token', icon='URL').url = "https://sketchfab.com/settings/password"
                 ops_row = layout.row()
-                ops_row.operator('wm.sketchfab_signup', text='Create an account', icon='PLUS')
                 login_icon = "LINKED" if bpy.app.version < (2,80,0) else "USER"
                 ops_row.operator('wm.sketchfab_login', text='Log in', icon=login_icon).authenticate = True
                 if skfb_login.status:
@@ -1778,11 +1719,9 @@ class SketchfabLogger(bpy.types.Operator):
         set_login_status('FILE_REFRESH', 'Login to your Sketchfab account...')
         wm = context.window_manager
         if self.authenticate:
-            wm.sketchfab_browser.skfb_api.login(wm.sketchfab_api.email, wm.sketchfab_api.password, wm.sketchfab_api.api_token)
+            wm.sketchfab_browser.skfb_api.login(None, None, wm.sketchfab_api.api_token)
         else:
             wm.sketchfab_browser.skfb_api.logout()
-            wm.sketchfab_api.password = ''
-            wm.sketchfab_api.last_password = "default"
             set_login_status('FILE_REFRESH', '')
         return {'FINISHED'}
 
@@ -1832,6 +1771,8 @@ class SketchfabDownloadModel(bpy.types.Operator):
     def execute(self, context):
         skfb_api = context.window_manager.sketchfab_browser.skfb_api
         skfb_api.download_model(self.model_uid)
+        attribution = SF_Attributions()
+        attribution.request_model_attributions(self.model_uid)
         return {'FINISHED'}
 
 
@@ -1854,7 +1795,10 @@ def clear_search():
     skfb.has_loaded_thumbnails = False
     skfb.search_results.clear()
     skfb.custom_icons.clear()
-    bpy.data.window_managers['WinMan']['result_previews'] = 0
+    # Reset the previews enum without assuming the window manager is named "WinMan"
+    # (it isn't in headless/background sessions, which raised a KeyError here).
+    for wm in bpy.data.window_managers:
+        wm['result_previews'] = 0
 
 
 class SketchfabSearch(bpy.types.Operator):
@@ -1958,19 +1902,10 @@ def activate_plugin():
 
     # Fill login/access_token
     cache_data = Cache.read()
-    if 'username' in cache_data:
-        login.email = cache_data['username']
-
-    if 'access_token' in cache_data:
-        props.skfb_api.access_token = cache_data['access_token']
-        props.skfb_api.build_headers()
-        props.skfb_api.request_user_info()
-        props.skfb_api.use_mail = True
-    elif 'api_token' in cache_data:
+    if 'api_token' in cache_data:
         props.skfb_api.api_token = cache_data['api_token']
         props.skfb_api.build_headers()
         props.skfb_api.request_user_info()
-        props.skfb_api.use_mail = False
 
     global is_plugin_enabled
     is_plugin_enabled = True
@@ -2340,15 +2275,33 @@ def updateCacheDirectory(self, context):
     # Delete the old directory
     # Won't delete anything upon plugin intialization, only when switching path in preferences
     if Config.SKETCHFAB_TEMP_DIR and os.path.exists(Config.SKETCHFAB_TEMP_DIR) and os.path.isdir(Config.SKETCHFAB_TEMP_DIR):
-        shutil.rmtree(Config.SKETCHFAB_TEMP_DIR)
+        try:
+            shutil.rmtree(Config.SKETCHFAB_TEMP_DIR)
+        except OSError as err:
+            print("Sketchfab: could not remove old cache directory '{}': {}".format(Config.SKETCHFAB_TEMP_DIR, err))
 
-    # Create the paths and directories for temporary directories
-    Config.SKETCHFAB_TEMP_DIR = os.path.join(path, "sketchfab_downloads")
-    Config.SKETCHFAB_THUMB_DIR = os.path.join(Config.SKETCHFAB_TEMP_DIR, 'thumbnails')
-    Config.SKETCHFAB_MODEL_DIR = os.path.join(Config.SKETCHFAB_TEMP_DIR, 'imports')
-    if not os.path.exists(Config.SKETCHFAB_TEMP_DIR): os.makedirs(Config.SKETCHFAB_TEMP_DIR)
-    if not os.path.exists(Config.SKETCHFAB_THUMB_DIR): os.makedirs(Config.SKETCHFAB_THUMB_DIR)
-    if not os.path.exists(Config.SKETCHFAB_MODEL_DIR): os.makedirs(Config.SKETCHFAB_MODEL_DIR)
+    # Create the temporary directories. If the configured path can't be created
+    # (missing drive, permission denied, unusual characters, ...) fall back to the
+    # system temp directory so that enabling the add-on never fails because of it.
+    for candidate in (path, tempfile.gettempdir()):
+        temp_dir  = os.path.join(candidate, "sketchfab_downloads")
+        thumb_dir = os.path.join(temp_dir, 'thumbnails')
+        model_dir = os.path.join(temp_dir, 'imports')
+        try:
+            os.makedirs(thumb_dir, exist_ok=True)
+            os.makedirs(model_dir, exist_ok=True)
+        except OSError as err:
+            print("Sketchfab: cannot use cache directory '{}': {}".format(candidate, err))
+            continue
+        Config.SKETCHFAB_TEMP_DIR  = temp_dir
+        Config.SKETCHFAB_THUMB_DIR = thumb_dir
+        Config.SKETCHFAB_MODEL_DIR = model_dir
+        return
+
+    # Both the configured path and the system temp directory failed: keep the
+    # add-on enabled rather than raising, and let the user set a writable folder.
+    print("Sketchfab: failed to create a cache directory; downloads may not work "
+          "until a writable Cache folder is set in the add-on preferences.")
 
 class SketchfabAddonPreferences(bpy.types.AddonPreferences):
     bl_idname = __name__
@@ -2455,8 +2408,49 @@ def register():
                 type=SketchfabExportProps,
                 )
 
-    # If a cache path was set in preferences, use it
-    updateCacheDirectory(None, context=bpy.context)
+    # If a cache path was set in preferences, use it. Never let cache setup
+    # abort registration, otherwise the add-on fails to enable entirely.
+    try:
+        updateCacheDirectory(None, context=bpy.context)
+    except Exception as err:
+        print("Sketchfab: failed to initialize cache directory during registration: {}".format(err))
+
+class SF_Attributions:
+
+    def append_to_attributions(self, text): 
+        # Check if "sf_attributions" text file already exists
+        if "sf_attributions" not in bpy.data.texts:
+            # Create a new text file named "sf_attributions"
+            text_block = bpy.data.texts.new(name="sf_attributions")
+            print("Text file 'sf_attributions' created.")
+        else:
+            # Get the existing text file
+            text_block = bpy.data.texts["sf_attributions"]
+
+         # Move the cursor to the end of the text block
+        text_block.cursor_set(len(text_block.as_string()))
+        
+        # Append the new text
+        text_block.write(text + "\n")
+        print("Credits appended to 'sf_attributions' file.")
+
+    def request_model_attributions(self, uid, callback=None):
+        self.uid = uid
+        callback = self.handle_model_attributions if callback is None else callback
+        url = Config.SKETCHFAB_MODEL + '/' + uid
+
+        model_infothr = GetRequestThread(url, callback)
+        model_infothr.start()
+
+    def handle_model_attributions(self, r, *args, **kwargs):
+        json_data = r.json()
+        try:
+            self.append_to_attributions(f"\"{json_data['name']}\" ({json_data['viewerUrl']}) by {json_data['user']['username']} is licensed under {json_data['license']['fullName']} ({json_data['license']['url']}).")
+        except KeyError as err:
+            try:
+                self.append_to_attributions(f"Could not get attribution for UID: {self.uid}.")
+            except Exception as inner_err:
+                print(inner_err)
 
 def unregister():
     for cls in classes:
